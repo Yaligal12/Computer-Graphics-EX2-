@@ -59,7 +59,8 @@ class PointLight(LightSource):
     # This function returns the light intensity at a point
     def get_intensity(self, intersection):
         d = self.get_distance_from_light(intersection)
-        return self.intensity / (self.kc + self.kl*d + self.kq * (d**2))
+        f_att = 1 / (self.kc + self.kl*d + self.kq * (d**2))
+        return self.intensity * f_att
 
 
 class SpotLight(LightSource):
@@ -80,7 +81,10 @@ class SpotLight(LightSource):
 
     def get_intensity(self, intersection):
         d = self.get_distance_from_light(intersection)
-        return self.intensity / (self.kc + self.kl*d + self.kq * (d**2))
+        f_att = 1 / (self.kc + self.kl*d + self.kq * (d**2))
+        V = normalize(self.get_light_ray(intersection).direction)
+
+        return self.intensity * f_att * np.dot(V, -self.direction)
 
 
 class Ray:
@@ -90,15 +94,20 @@ class Ray:
 
     # The function is getting the collection of objects in the scene and looks for the one with minimum distance.
     # The function should return the nearest object and its distance (in two different arguments)
+
     def nearest_intersected_object(self, objects):
-        intersections = [obj.intersect(
-            self) for obj in objects if obj.intersect(self) is not None]
+        nearest_object = None
+        min_distance = np.inf
 
-        if intersections == []:
-            return None, None
+        for object in objects:
+            intersection = object.intersect(self)
+            if intersection is not None:
+                t, _ = intersection
+                if t < min_distance:
+                    min_distance = t
+                    nearest_object = object
 
-        closest_object = min(intersections, key=lambda x: x[0])
-        return closest_object[0], closest_object[1]
+        return min_distance, nearest_object
 
 
 class Object3D:
@@ -114,6 +123,9 @@ class Plane(Object3D):
     def __init__(self, normal, point):
         self.normal = np.array(normal)
         self.point = np.array(point)
+
+    def compute_normal(self, _):
+        return self.normal
 
     def intersect(self, ray: Ray):
         v = self.point - ray.origin
@@ -140,24 +152,43 @@ class Triangle(Object3D):
         self.a = np.array(a)
         self.b = np.array(b)
         self.c = np.array(c)
-        self.normal = self.compute_normal()
+        self.normal = self.compute_normal(a)
 
     # computes normal to the trainagle surface. Pay attention to its direction!
-    def compute_normal(self):
+    def compute_normal(self, _):
         return normalize(np.cross(self.b - self.a, self.c - self.a))
 
     def intersect(self, ray: Ray):
-        area = np.linalg.norm(np.cross(self.b - self.a, self.c - self.a))/2
-        alpha = np.linalg.norm(
-            np.cross(ray.origin - self.b, ray.origin - self.c))/(2*area)
-        beta = np.linalg.norm(
-            np.cross(ray.origin - self.c, ray.origin - self.a))/(2*area)
-        gamma = 1 - alpha - beta
-        if self.check_intersect_condition(alpha, beta, gamma):
-            return np.dot(ray.direction, self.normal), self
+        triangle_plane = Plane(self.normal, self.a)
+        intersection = triangle_plane.intersect(ray)
+        if intersection is None:
+            return None
+
+        t, _ = intersection
+        intersection_point = ray.origin + t * ray.direction
+        if self.barrycentric(intersection_point):
+            return intersection
+        return None
+
+    def barrycentric(self, intersection_point):
+        p = intersection_point
+        pa = p - self.a
+        pb = p - self.b
+        pc = p - self.c
+
+        area_ABC = np.linalg.norm(np.cross(self.b - self.a, self.c - self.a))
+        area_PBC = np.linalg.norm(np.cross(pb, pc))
+        area_PCA = np.linalg.norm(np.cross(pc, pa))
+        area_PAB = np.linalg.norm(np.cross(pa, pb))
+
+        alpha = area_PBC / area_ABC
+        beta = area_PCA / area_ABC
+        gamma = area_PAB / area_ABC
+
+        return self.check_intersect_condition(alpha, beta, gamma)
 
     def check_intersect_condition(self, alpha, beta, gamma):
-        return 0 <= alpha <= 1 and 0 <= beta <= 1 and 0 <= gamma <= 1 and alpha+beta+gamma == 1
+        return 0 <= alpha <= 1 and 0 <= beta <= 1 and 0 <= gamma <= 1 and np.abs(alpha+beta+gamma - 1) < 1e-6
 
 
 class Pyramid(Object3D):
@@ -200,16 +231,28 @@ A /&&&&&&&&&&&&&&&&&&&&\ B &&&/ C
             [4, 1, 0],
             [4, 2, 1],
             [2, 4, 0]]
-        # TODO
+        for i in t_idx:
+            l.append(Triangle(self.v_list[i[0]],
+                     self.v_list[i[1]], self.v_list[i[2]]))
         return l
 
     def apply_materials_to_triangles(self):
-        # TODO
-        pass
+        for t in self.triangle_list:
+            t.set_material(self.ambient, self.diffuse,
+                           self.specular, self.shininess, self.reflection)
 
     def intersect(self, ray: Ray):
-        # TODO
-        pass
+        closest_intersection = None
+        for triangle in self.triangle_list:
+            result = triangle.intersect(ray)
+            if result is not None:
+                if closest_intersection is None or result[0] < closest_intersection[0]:
+                    closest_intersection = result
+                    self.last_intersected_triangle = triangle
+        return closest_intersection
+
+    def compute_normal(self, _):
+        return self.last_intersected_triangle.compute_normal(_)
 
 
 class Sphere(Object3D):
@@ -218,5 +261,22 @@ class Sphere(Object3D):
         self.radius = radius
 
     def intersect(self, ray: Ray):
-        # TODO
-        pass
+        b = self.center - ray.origin
+        proj_len = np.dot(b, ray.direction)
+        if proj_len < 0:
+            return None
+        proj = ray.direction * proj_len
+        distance = np.linalg.norm(proj - b)
+        if distance > self.radius:
+            # no intersection
+            return None
+        elif distance == self.radius:
+            # one intersection point
+            return proj_len, self
+        else:
+            # two intersection points
+            t = proj_len - np.sqrt(self.radius ** 2 - distance ** 2)
+            return t, self
+
+    def compute_normal(self, point):
+        return normalize(point - self.center)
