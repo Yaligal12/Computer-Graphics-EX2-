@@ -52,6 +52,7 @@ def get_color(scene, closest_object, ray, intersection_point, depth, max_depth):
 
         if shadow_coefficient == 0:
             continue
+
         color += calc_diffuse_color(intersection_point, light, closest_object)
         color += calc_specular_color(scene,
                                      intersection_point, light, closest_object)
@@ -116,8 +117,58 @@ def calc_object_norm(object, hit_point):
 
 def your_own_scene():
     camera = np.array([0, 0, 1])
-    lights = []
-    objects = []
+
+    background = Plane([0, 0, 1], [0, 0, -3])
+    background.set_material([0.2, 0.2, 0.2], [0.2, 0.2, 0.2], [
+                            0.2, 0.2, 0.2], 1000, 0.5)
+
+    sphere1 = Sphere([0.5, 0.5, -1], 0.5)
+    sphere1.set_material([1, 0, 0], [1, 0, 0], [1, 1, 1], 100, 0.5)
+
+    sphere2 = Sphere([0.2, 0.3, 1], 0.4)
+    sphere2.set_material([1, 0, 1], [1, 1, 1], [0, 0, 1], 50, 0.3)
+
+    light1 = PointLight(intensity=np.array([1, 1, 1]), position=np.array(
+        [1, 1.5, 1]), kc=0.1, kl=0.1, kq=0.1)
+    light2 = SpotLight(intensity=np.array([1, 1, 0]), position=np.array(
+        [-1, 1.5, 1]), direction=([0, 1, 1]), kc=0.1, kl=0.1, kq=0.1)
+
+    lights = [light1, light2]
+    objects = [sphere1, sphere2, background]
+
+    return camera, lights, objects
+
+
+def your_own():
+    sphere = Sphere(center=[0, -0.01, -1], radius=0.7)
+    sphere.set_material([0.1, 0.1, 0.5], [0.1, 0.1, 0.5],
+                        [0.5, 0.5, 0.5], 32, 0.5)
+
+    pyramid = Pyramid(v_list=[
+        [0.5, -0.5, -1.5],
+        [1.5, -0.5, -1.5],
+        [1.0, -0.5, -2.5],
+        [1.0, 0.5, -1.5],
+        [1.0, -1.5, -1.5]
+    ])
+    pyramid.set_material([0.5, 0.1, 0.1], [0.5, 0.1, 0.1], [
+                         0.5, 0.5, 0.5], 32, 0.3)
+    pyramid.apply_materials_to_triangles()
+
+    plane = Plane(normal=[0, 1, 0], point=[0, -0.5, 0])
+    plane.set_material([0.2, 0.2, 0.2], [0.2, 0.2, 0.2],
+                       [0.5, 0.5, 0.5], 32, 0.5)
+
+    objects = [sphere, pyramid, plane]
+
+    point_light = PointLight(intensity=np.array(
+        [1, 1, 1]), position=np.array([1, 1, 1]), kc=0.1, kl=0.1, kq=0.1)
+    directional_light = DirectionalLight(intensity=np.array(
+        [1, 1, 1]), direction=np.array([-1, -1, -1]))
+    lights = [point_light, directional_light]
+
+    camera = np.array([0, 0, 1])
+
     return camera, lights, objects
 
 
